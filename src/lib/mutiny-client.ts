@@ -1,4 +1,4 @@
-const API_BASE = 'http://nvk.gay:3000';
+const API_BASE = 'https://mutiny-proxy.c-liran-c.workers.dev';
 
 interface JsonRpcRequest {
   jsonrpc: '1.0' | '2.0';
