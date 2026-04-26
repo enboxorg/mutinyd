@@ -73,7 +73,7 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: mutinyd
           directory: dist
-          branch: main
+          branch: master
 
   build:
     name: Build (verify)
