@@ -1,10 +1,21 @@
-import { useState } from 'react';
-import { ConnectModal } from '@/components/connect/connect-modal';
-import { ZapIcon, ShieldIcon, LayersIcon, GlobeIcon } from 'lucide-react';
+import { ZapIcon, ShieldIcon, LayersIcon, GlobeIcon, Loader2Icon } from 'lucide-react';
+import { useEnbox } from '@/enbox/use-enbox';
 import { brand } from '@/lib/brand';
+import { toastError } from '@/lib/utils';
 
 export function Welcome() {
-  const [showConnect, setShowConnect] = useState(false);
+  const { connectWallet, isConnecting } = useEnbox();
+
+  const handleConnect = async () => {
+    try {
+      await connectWallet();
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : '';
+      if (!message.includes('denied') && !message.includes('cancelled') && !message.includes('canceled')) {
+        toastError('Failed to connect wallet', error);
+      }
+    }
+  };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -43,13 +54,18 @@ export function Welcome() {
         </div>
 
         <button
-          onClick={() => setShowConnect(true)}
-          className="w-full rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+          onClick={() => void handleConnect()}
+          disabled={isConnecting}
+          className="w-full rounded-full bg-primary py-3 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-60"
         >
-          Get Started
+          {isConnecting ? (
+            <span className="inline-flex items-center justify-center gap-2">
+              <Loader2Icon className="h-4 w-4 animate-spin" /> Connecting...
+            </span>
+          ) : (
+            'Get Started'
+          )}
         </button>
-
-        {showConnect && <ConnectModal onClose={() => setShowConnect(false)} />}
       </div>
     </div>
   );
