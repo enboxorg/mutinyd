@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useEffect, useRef, useState } from 'react';
 
-import { AuthManager, BrowserConnectHandler, DEFAULT_WALLETS, Enbox } from '@enbox/browser';
+import { AuthManager, BrowserConnectHandler, DEFAULT_WALLETS, Enbox, isSessionExpiredError, isSessionInvalidError } from '@enbox/browser';
 import type { AuthSession } from '@enbox/browser';
 import { MutinyWalletDefinition } from '@/protocol/mutiny-wallet-protocol';
 import { MutinyTransferDefinition } from '@/protocol/mutiny-transfer-protocol';
@@ -54,6 +54,7 @@ export const EnboxContext = createContext<EnboxContextProps>({
 
 export const EnboxProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const authRef = useRef<AuthManager | null>(null);
+  const monitorStopRef = useRef<(() => void) | null>(null);
   const [enbox, setEnbox] = useState<Enbox | undefined>();
   const [did, setDid] = useState<string | undefined>();
   const [isDelegateSession, setIsDelegateSession] = useState(false);
@@ -69,6 +70,40 @@ export const EnboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setRecoveryPhrase(session.recoveryPhrase);
     }
   }, []);
+
+  const disconnect = useCallback(async (options?: { clearStorage?: boolean }) => {
+    monitorStopRef.current?.();
+    monitorStopRef.current = null;
+
+    const auth = authRef.current;
+    if (!auth) { return; }
+
+    await auth.disconnect({ clearStorage: options?.clearStorage });
+    setEnbox(undefined);
+    setDid(undefined);
+    setRecoveryPhrase(undefined);
+
+    if (options?.clearStorage) {
+      window.location.reload();
+    }
+  }, []);
+
+  const startDelegateMonitor = useCallback(() => {
+    const auth = authRef.current;
+    if (!auth) { return; }
+
+    monitorStopRef.current?.();
+    monitorStopRef.current = auth.startConnectionMonitor({
+      autoRefresh: { protocols: DAPP_PROTOCOLS },
+      onError: (err) => {
+        if (isSessionExpiredError(err) || isSessionInvalidError(err)) {
+          void disconnect();
+        } else {
+          console.warn('[mutinyd] connection refresh failed; will retry', err);
+        }
+      },
+    });
+  }, [disconnect]);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,6 +137,9 @@ export const EnboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         if (session) {
           applySession(session);
+          if (session.delegateDid) {
+            startDelegateMonitor();
+          }
         }
       } catch (err) {
         console.error('[mutinyd] Auth init failed:', err);
@@ -111,8 +149,12 @@ export const EnboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     init();
-    return () => { cancelled = true; };
-  }, [applySession]);
+    return () => {
+      cancelled = true;
+      monitorStopRef.current?.();
+      monitorStopRef.current = null;
+    };
+  }, [applySession, startDelegateMonitor]);
 
   const connectLocal = useCallback(async () => {
     const auth = authRef.current;
@@ -139,24 +181,13 @@ export const EnboxProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         protocols: DAPP_PROTOCOLS,
       });
       applySession(session);
+      if (session.delegateDid) {
+        startDelegateMonitor();
+      }
     } finally {
       setIsConnecting(false);
     }
-  }, [applySession]);
-
-  const disconnect = useCallback(async (options?: { clearStorage?: boolean }) => {
-    const auth = authRef.current;
-    if (!auth) { return; }
-
-    await auth.disconnect({ clearStorage: options?.clearStorage });
-    setEnbox(undefined);
-    setDid(undefined);
-    setRecoveryPhrase(undefined);
-
-    if (options?.clearStorage) {
-      window.location.reload();
-    }
-  }, []);
+  }, [applySession, startDelegateMonitor]);
 
   const clearRecoveryPhrase = useCallback(() => {
     setRecoveryPhrase(undefined);
